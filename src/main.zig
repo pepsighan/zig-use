@@ -90,6 +90,13 @@ pub fn getZigCompilerPath(allocator: std.mem.Allocator, version: []const u8) ![]
     const home_path = try std.process.getEnvVarOwned(allocator, "HOME");
     defer allocator.free(home_path);
 
+    const zig_use_path = try std.fs.path.join(allocator, &[_][]const u8{ home_path, ".zig-use" });
+    defer allocator.free(zig_use_path);
+    std.fs.makeDirAbsolute(zig_use_path) catch |err| switch (err) {
+        error.PathAlreadyExists => {},
+        else => |e| return e,
+    };
+
     const compiler_path = try std.fmt.allocPrint(allocator, ".zig-use/zig-{s}-{s}", .{ platform, version });
     defer allocator.free(compiler_path);
 
