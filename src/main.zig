@@ -46,7 +46,7 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     return platform;
 }
 
-fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler {
+fn resolveZigCompiler(allocator: std.mem.Allocator, version: []const u8) !ZigCompiler {
     const platform = try getZigPlatform(allocator);
     defer allocator.free(platform);
 
@@ -97,6 +97,17 @@ fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler 
     };
 }
 
+pub fn getZigCompilerPath(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
+    const platform = try getZigPlatform(allocator);
+    defer allocator.free(platform);
+
+    const compiler_name = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, version });
+    defer allocator.free(compiler_name);
+
+    const file_path = try std.fmt.allocPrint(allocator, "zig-out/{s}.tar.xz", .{compiler_name});
+    return file_path;
+}
+
 pub fn downloadZigCompiler(allocator: std.mem.Allocator, zig_compiler: ZigCompiler) !void {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
@@ -116,19 +127,25 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, zig_compiler: ZigCompil
     const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
     defer allocator.free(body);
 
-    const platform = try getZigPlatform(allocator);
-    defer allocator.free(platform);
-
-    const compiler_name = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, zig_compiler.version });
-    defer allocator.free(compiler_name);
-
-    const file_path = try std.fmt.allocPrint(allocator, "zig-out/{s}.tar.xz", .{compiler_name});
+    const file_path = try getZigCompilerPath(allocator, zig_compiler.version);
     defer allocator.free(file_path);
 
     const file = try std.fs.cwd().createFile(file_path, .{});
     defer file.close();
 
     try file.writeAll(body);
+}
+
+fn checkIfZigCompilerIsInstalled(allocator: std.mem.Allocator, version: []const u8) !bool {
+    const file_path = try getZigCompilerPath(allocator, version);
+    defer allocator.free(file_path);
+
+    std.fs.cwd().access(file_path, .{}) catch |err| switch (err) {
+        error.FileNotFound => return false,
+        else => |e| return e,
+    };
+
+    return true;
 }
 
 pub fn main() !void {
@@ -140,8 +157,12 @@ pub fn main() !void {
     var zig_download = try resolveZigCompiler(allocator, zig_version);
     defer zig_download.deinit();
 
-    std.debug.print("{s}\n", .{zig_download.url});
-    std.debug.print("{s}\n", .{zig_download.version});
+    const is_installed = try checkIfZigCompilerIsInstalled(allocator, zig_download.version);
+    if (is_installed) {
+        std.debug.print("Zig ({s}) is already installed\n", .{zig_download.version});
+        return;
+    }
 
+    std.debug.print("Downloading Zig ({s})...\n", .{zig_download.version});
     try downloadZigCompiler(allocator, zig_download);
 }
