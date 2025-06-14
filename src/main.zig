@@ -1,6 +1,14 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+fn trim(content: []u8) ![]const u8 {
+    const trimmed = std.mem.trim(u8, content, " \t\n");
+    if (trimmed.len == 0) {
+        return error.ZigVersionNotFound;
+    }
+    return trimmed;
+}
+
 fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
     // Read the .zigversion file
     const file = try std.fs.cwd().openFile(".zigversion", .{});
@@ -198,8 +206,10 @@ fn passThroughCommand(allocator: std.mem.Allocator, version: []const u8) !void {
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
-    const zig_version = try readZigVersion(allocator);
-    defer allocator.free(zig_version);
+    const version = try readZigVersion(allocator);
+    defer allocator.free(version);
+
+    const zig_version = try trim(version);
 
     var compiler = try resolveZigCompiler(allocator, zig_version);
     defer compiler.deinit();
