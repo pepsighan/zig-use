@@ -149,13 +149,20 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u
     try request.finish();
     try request.wait();
 
-    const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
-    defer allocator.free(body);
+    if (request.response.status == .ok) {
+        const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
+        defer allocator.free(body);
 
-    const file = try std.fs.createFileAbsolute(download_path, .{});
-    defer file.close();
+        const file = try std.fs.createFileAbsolute(download_path, .{});
+        defer file.close();
 
-    try file.writeAll(body);
+        try file.writeAll(body);
+        return;
+    }
+
+    std.log.err("could not find zig compiler to install", .{});
+    std.log.err("invalid version specified in .zigversion", .{});
+    std.process.abort();
 }
 
 fn deleteFile(path: []const u8) !void {
