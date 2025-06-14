@@ -24,9 +24,7 @@ const ZigCompiler = struct {
     }
 };
 
-fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler {
-    const resolved_version = if (version.len > 0) version else "master";
-
+fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     const os = builtin.os.tag;
     const os_name = switch (os) {
         .linux => "linux",
@@ -45,7 +43,14 @@ fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler 
     };
 
     const platform = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch_name, os_name });
+    return platform;
+}
+
+fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler {
+    const platform = try getZigPlatform(allocator);
     defer allocator.free(platform);
+
+    const resolved_version = if (version.len > 0) version else "master";
 
     // Download the index.json from ziglang.org
     var client = std.http.Client{ .allocator = allocator };
@@ -84,7 +89,7 @@ fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler 
     }
 
     // Version does not exist, so it is probably a pre-release version.
-    const url = try std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}-{s}.tar.xz", .{ arch_name, os_name, resolved_version });
+    const url = try std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}.tar.xz", .{ platform, resolved_version });
     return .{
         .allocator = allocator,
         .url = try allocator.dupe(u8, url),
@@ -111,7 +116,16 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, zig_compiler: ZigCompil
     const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
     defer allocator.free(body);
 
-    const file = try std.fs.cwd().createFile("zig-out/zig-compiler.tar.xz", .{});
+    const platform = try getZigPlatform(allocator);
+    defer allocator.free(platform);
+
+    const compiler_name = try std.fmt.allocPrint(allocator, "zig-{s}-{s}", .{ platform, zig_compiler.version });
+    defer allocator.free(compiler_name);
+
+    const file_path = try std.fmt.allocPrint(allocator, "zig-out/{s}.tar.xz", .{compiler_name});
+    defer allocator.free(file_path);
+
+    const file = try std.fs.cwd().createFile(file_path, .{});
     defer file.close();
 
     try file.writeAll(body);
