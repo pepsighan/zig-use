@@ -11,7 +11,16 @@ fn trim(content: []u8) ![]const u8 {
 
 fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
     // Read the .zigversion file
-    const file = try std.fs.cwd().openFile(".zigversion", .{});
+    const file = std.fs.cwd().openFile(".zigversion", .{}) catch |err| {
+        switch (err) {
+            error.FileNotFound => {
+                // Log to error.
+                std.log.err(".zigversion file not found", .{});
+                std.process.abort();
+            },
+            else => return err,
+        }
+    };
     defer file.close();
 
     // Read the entire file content
