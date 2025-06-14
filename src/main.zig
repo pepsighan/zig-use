@@ -161,7 +161,7 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u
     }
 
     std.log.err("could not find zig compiler to install", .{});
-    std.log.err("invalid version specified in .zigversion", .{});
+    std.log.err("invalid version specified in .zigversion file", .{});
     std.process.abort();
 }
 
