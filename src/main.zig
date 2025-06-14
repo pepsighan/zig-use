@@ -9,18 +9,31 @@ fn trim(content: []u8) ![]const u8 {
     return trimmed;
 }
 
-fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
-    // Read the .zigversion file
-    const file = std.fs.cwd().openFile(".zigversion", .{}) catch |err| {
+fn findZigVersionFile(allocator: std.mem.Allocator, dir: []const u8) !std.fs.File {
+    const zigversion_path = try std.fs.path.join(allocator, &[_][]const u8{ dir, ".zigversion" });
+    defer allocator.free(zigversion_path);
+    return std.fs.openFileAbsolute(zigversion_path, .{}) catch |err| {
         switch (err) {
             error.FileNotFound => {
-                // Log to error.
+                const parent_dir = std.fs.path.dirname(dir);
+                if (parent_dir) |pd| {
+                    return findZigVersionFile(allocator, pd);
+                }
+
+                // Reached to the root. Cannot go any higher.
+                // Return with the following error.
                 std.log.err(".zigversion file not found", .{});
                 std.process.abort();
             },
             else => return err,
         }
     };
+}
+
+fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
+    // Read the .zigversion file
+    const cwd = try std.fs.cwd().realpathAlloc(allocator, ".");
+    const file = try findZigVersionFile(allocator, cwd);
     defer file.close();
 
     // Read the entire file content
