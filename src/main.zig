@@ -29,7 +29,6 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     const os_name = switch (os) {
         .linux => "linux",
         .macos => "macos",
-        .windows => "windows",
         else => unreachable,
     };
 
