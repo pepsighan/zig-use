@@ -11,12 +11,12 @@ fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
     return content;
 }
 
-const ZigDownloadUrlAndVersion = struct {
+const ZigCompiler = struct {
     allocator: std.mem.Allocator,
     url: []const u8,
     version: []const u8,
 
-    fn deinit(self: *ZigDownloadUrlAndVersion) void {
+    fn deinit(self: *ZigCompiler) void {
         self.allocator.free(self.url);
         self.allocator.free(self.version);
 
@@ -24,7 +24,7 @@ const ZigDownloadUrlAndVersion = struct {
     }
 };
 
-fn zigDownloadUrlAndVersion(allocator: std.mem.Allocator, version: []u8) !ZigDownloadUrlAndVersion {
+fn resolveZigCompiler(allocator: std.mem.Allocator, version: []u8) !ZigCompiler {
     const resolved_version = if (version.len > 0) version else "master";
 
     const os = builtin.os.tag;
@@ -92,15 +92,42 @@ fn zigDownloadUrlAndVersion(allocator: std.mem.Allocator, version: []u8) !ZigDow
     };
 }
 
+pub fn downloadZigCompiler(allocator: std.mem.Allocator, zig_compiler: ZigCompiler) !void {
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    const uri = try std.Uri.parse(zig_compiler.url);
+
+    var hbuffer: [1024]u8 = undefined;
+    var request = try client.open(.GET, uri, .{
+        .server_header_buffer = &hbuffer,
+    });
+    defer request.deinit();
+
+    try request.send();
+    try request.finish();
+    try request.wait();
+
+    const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
+    defer allocator.free(body);
+
+    const file = try std.fs.cwd().createFile("zig-out/zig-compiler.tar.xz", .{});
+    defer file.close();
+
+    try file.writeAll(body);
+}
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     const zig_version = try readZigVersion(allocator);
     defer allocator.free(zig_version);
 
-    var zig_download = try zigDownloadUrlAndVersion(allocator, zig_version);
+    var zig_download = try resolveZigCompiler(allocator, zig_version);
     defer zig_download.deinit();
 
     std.debug.print("{s}\n", .{zig_download.url});
     std.debug.print("{s}\n", .{zig_download.version});
+
+    try downloadZigCompiler(allocator, zig_download);
 }
