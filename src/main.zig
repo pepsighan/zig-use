@@ -139,7 +139,7 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u
     const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
     defer allocator.free(body);
 
-    const file = try std.fs.cwd().createFile(download_path, .{});
+    const file = try std.fs.createFileAbsolute(download_path, .{});
     defer file.close();
 
     try file.writeAll(body);
