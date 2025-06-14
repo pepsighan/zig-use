@@ -138,7 +138,7 @@ fn deleteFile(path: []const u8) !void {
 }
 
 fn checkIfZigCompilerIsInstalled(compiler_path: []const u8) !bool {
-    std.fs.cwd().access(compiler_path, .{}) catch |err| switch (err) {
+    std.fs.accessAbsolute(compiler_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
     };
