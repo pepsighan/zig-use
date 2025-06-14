@@ -184,6 +184,17 @@ fn extractZigCompiler(allocator: std.mem.Allocator, version: []const u8) !void {
     return std.process.execv(allocator, args);
 }
 
+fn passThroughCommand(allocator: std.mem.Allocator, version: []const u8) !void {
+    const compiler_path = try getZigCompilerPath(allocator, version);
+    defer allocator.free(compiler_path);
+
+    const zig_path = try std.fmt.allocPrint(allocator, "{s}/zig", .{compiler_path});
+    defer allocator.free(zig_path);
+
+    const args = &[_][]const u8{ zig_path, "version" };
+    return std.process.execv(allocator, args);
+}
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
@@ -198,7 +209,7 @@ pub fn main() !void {
 
     const is_installed = try checkIfZigCompilerIsInstalled(allocator, compiler.version);
     if (is_installed) {
-        std.debug.print("Zig ({s}) is already installed\n", .{compiler.version});
+        try passThroughCommand(allocator, compiler.version);
         return;
     }
 
