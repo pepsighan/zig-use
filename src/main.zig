@@ -143,8 +143,9 @@ fn deleteFile(path: []const u8) !void {
     };
 }
 
-fn checkIfZigCompilerIsInstalled(compiler_path: []const u8) !bool {
-    std.fs.accessAbsolute(compiler_path, .{}) catch |err| switch (err) {
+fn checkIfZigCompilerIsInstalled(allocator: std.mem.Allocator, compiler_path: []const u8) !bool {
+    const zig_exe_path = try std.fs.path.join(allocator, &[_][]const u8{ compiler_path, "zig" });
+    std.fs.accessAbsolute(zig_exe_path, .{}) catch |err| switch (err) {
         error.FileNotFound => return false,
         else => |e| return e,
     };
@@ -185,7 +186,7 @@ pub fn main() !void {
     const compiler_path = try getZigCompilerPath(allocator, version);
     defer allocator.free(compiler_path);
 
-    const is_installed = try checkIfZigCompilerIsInstalled(compiler_path);
+    const is_installed = try checkIfZigCompilerIsInstalled(allocator, compiler_path);
     if (is_installed) {
         try passThroughCommand(allocator, compiler_path);
         return;
