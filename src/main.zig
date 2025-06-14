@@ -4,7 +4,7 @@ const builtin = @import("builtin");
 fn trim(content: []u8) ![]const u8 {
     const trimmed = std.mem.trim(u8, content, " \t\n");
     if (trimmed.len == 0) {
-        return error.ZigVersionNotFound;
+        return error.DotZigVersionEmpty;
     }
     return trimmed;
 }
@@ -22,8 +22,7 @@ fn findZigVersionFile(allocator: std.mem.Allocator, dir: []const u8) !std.fs.Fil
 
                 // Reached to the root. Cannot go any higher.
                 // Return with the following error.
-                std.log.err(".zigversion file not found", .{});
-                std.process.abort();
+                return error.DotZigVersionNotFound;
             },
             else => return err,
         }
@@ -46,7 +45,7 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     const os_name = switch (os) {
         .linux => "linux",
         .macos => "macos",
-        else => unreachable,
+        else => return error.PlatformNotSupported,
     };
 
     const arch = builtin.cpu.arch;
@@ -55,7 +54,7 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
         .x86_64 => "x86_64",
         .aarch64 => "aarch64",
         .riscv64 => "riscv64",
-        else => unreachable,
+        else => return error.PlatformNotSupported,
     };
 
     const platform = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch_name, os_name });
@@ -97,7 +96,7 @@ fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
             const download_url = p.object.get("tarball") orelse return error.DownloadUrlNotFound;
             return allocator.dupe(u8, download_url.string);
         } else {
-            return error.PlatformNotFound;
+            return error.PlatformNotSupported;
         }
     }
 
@@ -149,20 +148,17 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u
     try request.finish();
     try request.wait();
 
-    if (request.response.status == .ok) {
-        const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
-        defer allocator.free(body);
-
-        const file = try std.fs.createFileAbsolute(download_path, .{});
-        defer file.close();
-
-        try file.writeAll(body);
-        return;
+    if (request.response.status != .ok) {
+        return error.ZigCompilerNotFound;
     }
 
-    std.log.err("could not find zig compiler to install", .{});
-    std.log.err("invalid version specified in .zigversion file", .{});
-    std.process.abort();
+    const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
+    defer allocator.free(body);
+
+    const file = try std.fs.createFileAbsolute(download_path, .{});
+    defer file.close();
+
+    try file.writeAll(body);
 }
 
 fn deleteFile(path: []const u8) !void {
@@ -226,7 +222,7 @@ fn passThroughCommand(allocator: std.mem.Allocator, compiler_path: []const u8) !
     _ = try child.spawnAndWait();
 }
 
-pub fn main() !void {
+fn run() !void {
     const allocator = std.heap.page_allocator;
 
     const zig_version = try readZigVersion(allocator);
@@ -234,8 +230,7 @@ pub fn main() !void {
 
     const version = try trim(zig_version);
     if (std.mem.indexOf(u8, version, "\n")) |_| {
-        std.log.err(".zigversion file should only contain a single version as its text content", .{});
-        std.process.abort();
+        return error.DotZigVersionInvalid;
     }
 
     const tar_file_path = try getZigCompilerTarPath(allocator, version);
@@ -266,4 +261,35 @@ pub fn main() !void {
 
     try extractZigCompiler(allocator, tar_file_path, compiler_path);
     try passThroughCommand(allocator, compiler_path);
+}
+
+pub fn main() void {
+    run() catch |err| {
+        switch (err) {
+            .DotZigVersionNotFound => {
+                std.log.err(".zigversion file not found", .{});
+            },
+            .DotZigVersionEmpty => {
+                std.log.err(".zigversion must provide a specific zig version", .{});
+            },
+            .DownloadUrlNotFound => {
+                std.log.err("could not find download URL to download zig compiler", .{});
+                std.log.err("maybe the version specified in .zigversion file is invalid", .{});
+            },
+            .DotZigVersionInvalid => {
+                std.log.err(".zigversion file should only contain a single version as its text content", .{});
+            },
+            .PlatformNotSupported => {
+                std.log.err("platform not supported", .{});
+            },
+            .ZigCompilerNotFound => {
+                std.log.err("could not find zig compiler to install", .{});
+                std.log.err("invalid version specified in .zigversion file", .{});
+            },
+            else => {
+                std.log.err("unknown error: {s}", .{@errorName(err)});
+            },
+        }
+        std.process.abort();
+    };
 }
