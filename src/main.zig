@@ -19,19 +19,6 @@ fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
     return content;
 }
 
-const ZigCompiler = struct {
-    allocator: std.mem.Allocator,
-    url: []const u8,
-    version: []const u8,
-
-    fn deinit(self: *ZigCompiler) void {
-        self.allocator.free(self.url);
-        self.allocator.free(self.version);
-
-        self.* = undefined;
-    }
-};
-
 fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     const os = builtin.os.tag;
     const os_name = switch (os) {
@@ -53,7 +40,7 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     return platform;
 }
 
-fn resolveZigCompiler(allocator: std.mem.Allocator, version: []const u8) !ZigCompiler {
+fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     const platform = try getZigPlatform(allocator);
     defer allocator.free(platform);
 
@@ -79,29 +66,21 @@ fn resolveZigCompiler(allocator: std.mem.Allocator, version: []const u8) !ZigCom
 
     // Parse the JSON
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{});
+    defer parsed.deinit();
+
     const version_obj = parsed.value.object.get(resolved_version);
     if (version_obj) |v| {
-        const final_version = if (v.object.get("version")) |ver| ver.string else resolved_version;
         const platform_obj = v.object.get(platform);
         if (platform_obj) |p| {
             const download_url = p.object.get("tarball") orelse return error.DownloadUrlNotFound;
-            return .{
-                .allocator = allocator,
-                .url = try allocator.dupe(u8, download_url.string),
-                .version = try allocator.dupe(u8, final_version),
-            };
+            return allocator.dupe(u8, download_url.string);
         } else {
             return error.PlatformNotFound;
         }
     }
 
     // Version does not exist, so it is probably a pre-release version.
-    const url = try std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}.tar.xz", .{ platform, resolved_version });
-    return .{
-        .allocator = allocator,
-        .url = try allocator.dupe(u8, url),
-        .version = try allocator.dupe(u8, version),
-    };
+    return std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}.tar.xz", .{ platform, resolved_version });
 }
 
 pub fn getZigCompilerPath(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
@@ -126,11 +105,11 @@ pub fn getZigCompilerTarPath(allocator: std.mem.Allocator, version: []const u8) 
     return try std.fmt.allocPrint(allocator, "{s}.tar.xz", .{compiler_path});
 }
 
-pub fn downloadZigCompiler(allocator: std.mem.Allocator, zig_compiler: ZigCompiler) !void {
+pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u8, version: []const u8) !void {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    const uri = try std.Uri.parse(zig_compiler.url);
+    const uri = try std.Uri.parse(download_url);
 
     var hbuffer: [1024]u8 = undefined;
     var request = try client.open(.GET, uri, .{
@@ -145,7 +124,7 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, zig_compiler: ZigCompil
     const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
     defer allocator.free(body);
 
-    const file_path = try getZigCompilerTarPath(allocator, zig_compiler.version);
+    const file_path = try getZigCompilerTarPath(allocator, version);
     defer allocator.free(file_path);
 
     const file = try std.fs.cwd().createFile(file_path, .{});
@@ -206,26 +185,26 @@ fn passThroughCommand(allocator: std.mem.Allocator, version: []const u8) !void {
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
-    const version = try readZigVersion(allocator);
-    defer allocator.free(version);
+    const zig_version = try readZigVersion(allocator);
+    defer allocator.free(zig_version);
 
-    const zig_version = try trim(version);
+    const version = try trim(zig_version);
 
-    var compiler = try resolveZigCompiler(allocator, zig_version);
-    defer compiler.deinit();
+    const download_url = try getZigDownloadUrl(allocator, version);
+    defer allocator.free(download_url);
 
     // Cleanup just in case there is a leftover tar file from a previous run.
-    try cleanupTarFile(allocator, compiler.version);
+    try cleanupTarFile(allocator, version);
 
-    const is_installed = try checkIfZigCompilerIsInstalled(allocator, compiler.version);
+    const is_installed = try checkIfZigCompilerIsInstalled(allocator, version);
     if (is_installed) {
-        try passThroughCommand(allocator, compiler.version);
+        try passThroughCommand(allocator, version);
         return;
     }
 
-    std.debug.print("Downloading Zig ({s})...\n", .{compiler.version});
-    try downloadZigCompiler(allocator, compiler);
-    defer cleanupTarFile(allocator, compiler.version) catch |err| @panic(@errorName(err));
+    std.debug.print("Downloading Zig ({s})...\n", .{version});
+    try downloadZigCompiler(allocator, download_url, version);
 
-    try extractZigCompiler(allocator, compiler.version);
+    try extractZigCompiler(allocator, version);
+    try passThroughCommand(allocator, version);
 }
