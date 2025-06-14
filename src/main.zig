@@ -179,17 +179,17 @@ pub fn main() !void {
     const compiler_path = try getZigCompilerPath(allocator, version);
     defer allocator.free(compiler_path);
 
-    const download_url = try getZigDownloadUrl(allocator, version);
-    defer allocator.free(download_url);
-
-    // Cleanup just in case there is a leftover tar file from a previous run.
-    try deleteFile(tar_file_path);
-
     const is_installed = try checkIfZigCompilerIsInstalled(compiler_path);
     if (is_installed) {
         try passThroughCommand(allocator, compiler_path);
         return;
     }
+
+    const download_url = try getZigDownloadUrl(allocator, version);
+    defer allocator.free(download_url);
+
+    // Cleanup just in case there is a leftover tar file from a previous run.
+    try deleteFile(tar_file_path);
 
     std.debug.print("Downloading Zig ({s})...\n", .{version});
     try downloadZigCompiler(allocator, download_url, tar_file_path);
