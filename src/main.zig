@@ -226,6 +226,11 @@ pub fn main() !void {
     defer allocator.free(zig_version);
 
     const version = try trim(zig_version);
+    if (std.mem.indexOf(u8, version, "\n")) |_| {
+        std.log.err(".zigversion file should only contain a single version as its text content", .{});
+        std.process.abort();
+    }
+
     const tar_file_path = try getZigCompilerTarPath(allocator, version);
     defer allocator.free(tar_file_path);
 
