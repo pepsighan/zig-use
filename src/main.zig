@@ -1,10 +1,19 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const ZigUseError = error{
+    DotZigVersionEmpty,
+    DotZigVersionNotFound,
+    PlatformNotSupported,
+    DownloadUrlNotFound,
+    ZigCompilerNotFound,
+    DotZigVersionInvalid,
+};
+
 fn trim(content: []u8) ![]const u8 {
     const trimmed = std.mem.trim(u8, content, " \t\n");
     if (trimmed.len == 0) {
-        return error.DotZigVersionEmpty;
+        return ZigUseError.DotZigVersionEmpty;
     }
     return trimmed;
 }
@@ -22,7 +31,7 @@ fn findZigVersionFile(allocator: std.mem.Allocator, dir: []const u8) !std.fs.Fil
 
                 // Reached to the root. Cannot go any higher.
                 // Return with the following error.
-                return error.DotZigVersionNotFound;
+                return ZigUseError.DotZigVersionNotFound;
             },
             else => return err,
         }
@@ -45,7 +54,7 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     const os_name = switch (os) {
         .linux => "linux",
         .macos => "macos",
-        else => return error.PlatformNotSupported,
+        else => return ZigUseError.PlatformNotSupported,
     };
 
     const arch = builtin.cpu.arch;
@@ -54,7 +63,7 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
         .x86_64 => "x86_64",
         .aarch64 => "aarch64",
         .riscv64 => "riscv64",
-        else => return error.PlatformNotSupported,
+        else => return ZigUseError.PlatformNotSupported,
     };
 
     const platform = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch_name, os_name });
@@ -93,10 +102,10 @@ fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     if (version_obj) |v| {
         const platform_obj = v.object.get(platform);
         if (platform_obj) |p| {
-            const download_url = p.object.get("tarball") orelse return error.DownloadUrlNotFound;
+            const download_url = p.object.get("tarball") orelse return ZigUseError.DownloadUrlNotFound;
             return allocator.dupe(u8, download_url.string);
         } else {
-            return error.PlatformNotSupported;
+            return ZigUseError.PlatformNotSupported;
         }
     }
 
@@ -149,7 +158,7 @@ pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u
     try request.wait();
 
     if (request.response.status != .ok) {
-        return error.ZigCompilerNotFound;
+        return ZigUseError.ZigCompilerNotFound;
     }
 
     const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
@@ -230,7 +239,7 @@ fn run() !void {
 
     const version = try trim(zig_version);
     if (std.mem.indexOf(u8, version, "\n")) |_| {
-        return error.DotZigVersionInvalid;
+        return ZigUseError.DotZigVersionInvalid;
     }
 
     const tar_file_path = try getZigCompilerTarPath(allocator, version);
@@ -266,23 +275,23 @@ fn run() !void {
 pub fn main() void {
     run() catch |err| {
         switch (err) {
-            .DotZigVersionNotFound => {
+            ZigUseError.DotZigVersionNotFound => {
                 std.log.err(".zigversion file not found", .{});
             },
-            .DotZigVersionEmpty => {
+            ZigUseError.DotZigVersionEmpty => {
                 std.log.err(".zigversion must provide a specific zig version", .{});
             },
-            .DownloadUrlNotFound => {
+            ZigUseError.DownloadUrlNotFound => {
                 std.log.err("could not find download URL to download zig compiler", .{});
                 std.log.err("maybe the version specified in .zigversion file is invalid", .{});
             },
-            .DotZigVersionInvalid => {
+            ZigUseError.DotZigVersionInvalid => {
                 std.log.err(".zigversion file should only contain a single version as its text content", .{});
             },
-            .PlatformNotSupported => {
+            ZigUseError.PlatformNotSupported => {
                 std.log.err("platform not supported", .{});
             },
-            .ZigCompilerNotFound => {
+            ZigUseError.ZigCompilerNotFound => {
                 std.log.err("could not find zig compiler to install", .{});
                 std.log.err("invalid version specified in .zigversion file", .{});
             },
