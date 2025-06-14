@@ -143,6 +143,13 @@ fn deleteFile(path: []const u8) !void {
     };
 }
 
+fn deleteDirectory(path: []const u8) !void {
+    std.fs.deleteTreeAbsolute(path) catch |err| switch (err) {
+        error.FileNotFound => {},
+        else => |e| return e,
+    };
+}
+
 fn checkIfZigCompilerIsInstalled(allocator: std.mem.Allocator, compiler_path: []const u8) !bool {
     const zig_exe_path = try std.fs.path.join(allocator, &[_][]const u8{ compiler_path, "zig" });
     std.fs.accessAbsolute(zig_exe_path, .{}) catch |err| switch (err) {
@@ -195,8 +202,10 @@ pub fn main() !void {
     const download_url = try getZigDownloadUrl(allocator, version);
     defer allocator.free(download_url);
 
-    // Cleanup just in case there is a leftover tar file from a previous run.
+    // Cleanup just in case there is a leftover tar file or the compiler directory that may be present
+    // in incorrect state.
     try deleteFile(tar_file_path);
+    try deleteDirectory(compiler_path);
 
     std.debug.print("Downloading Zig ({s})...\n", .{version});
     try downloadZigCompiler(allocator, download_url, tar_file_path);
