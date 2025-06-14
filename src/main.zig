@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 
 fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
     // Read the .zigversion file
@@ -10,11 +11,96 @@ fn readZigVersion(allocator: std.mem.Allocator) ![]u8 {
     return content;
 }
 
+const ZigDownloadUrlAndVersion = struct {
+    allocator: std.mem.Allocator,
+    url: []const u8,
+    version: []const u8,
+
+    fn deinit(self: *ZigDownloadUrlAndVersion) void {
+        self.allocator.free(self.url);
+        self.allocator.free(self.version);
+
+        self.* = undefined;
+    }
+};
+
+fn zigDownloadUrlAndVersion(allocator: std.mem.Allocator, version: []u8) !ZigDownloadUrlAndVersion {
+    const resolved_version = if (version.len > 0) version else "master";
+
+    const os = builtin.os.tag;
+    const os_name = switch (os) {
+        .linux => "linux",
+        .macos => "macos",
+        .windows => "windows",
+        else => unreachable,
+    };
+
+    const arch = builtin.cpu.arch;
+    const arch_name = switch (arch) {
+        .x86 => "x86",
+        .x86_64 => "x86_64",
+        .aarch64 => "aarch64",
+        .riscv64 => "riscv64",
+        else => unreachable,
+    };
+
+    const platform = try std.fmt.allocPrint(allocator, "{s}-{s}", .{ arch_name, os_name });
+    defer allocator.free(platform);
+
+    // Download the index.json from ziglang.org
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    const uri = try std.Uri.parse("https://ziglang.org/download/index.json");
+
+    var hbuffer: [1024]u8 = undefined;
+    var request = try client.open(.GET, uri, .{
+        .server_header_buffer = &hbuffer,
+    });
+    defer request.deinit();
+    try request.send();
+    try request.finish();
+    try request.wait();
+
+    const body = try request.reader().readAllAlloc(allocator, 10 * 1024 * 1024);
+    defer allocator.free(body);
+
+    // Parse the JSON
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{});
+    const version_obj = parsed.value.object.get(resolved_version);
+    if (version_obj) |v| {
+        const final_version = if (v.object.get("version")) |ver| ver.string else resolved_version;
+        const platform_obj = v.object.get(platform);
+        if (platform_obj) |p| {
+            const download_url = p.object.get("tarball") orelse return error.DownloadUrlNotFound;
+            return .{
+                .allocator = allocator,
+                .url = try allocator.dupe(u8, download_url.string),
+                .version = try allocator.dupe(u8, final_version),
+            };
+        } else {
+            return error.PlatformNotFound;
+        }
+    }
+
+    // Version does not exist, so it is probably a pre-release version.
+    const url = try std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}-{s}.tar.xz", .{ arch_name, os_name, resolved_version });
+    return .{
+        .allocator = allocator,
+        .url = try allocator.dupe(u8, url),
+        .version = try allocator.dupe(u8, version),
+    };
+}
+
 pub fn main() !void {
     const allocator = std.heap.page_allocator;
 
     const zig_version = try readZigVersion(allocator);
     defer allocator.free(zig_version);
 
-    std.debug.print("{s}\n", .{zig_version});
+    var zig_download = try zigDownloadUrlAndVersion(allocator, zig_version);
+    defer zig_download.deinit();
+
+    std.debug.print("{s}\n", .{zig_download.url});
+    std.debug.print("{s}\n", .{zig_download.version});
 }
