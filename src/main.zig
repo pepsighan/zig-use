@@ -87,15 +87,14 @@ pub fn getZigCompilerPath(allocator: std.mem.Allocator, version: []const u8) ![]
     const platform = try getZigPlatform(allocator);
     defer allocator.free(platform);
 
-    const file_path = try std.fmt.allocPrint(allocator, "zig-out/zig-{s}-{s}", .{ platform, version });
-    defer allocator.free(file_path);
+    const home_path = try std.process.getEnvVarOwned(allocator, "HOME");
+    defer allocator.free(home_path);
 
-    // Join the file path with the current working directory
-    const cwd_path = try std.fs.cwd().realpathAlloc(allocator, ".");
-    defer allocator.free(cwd_path);
+    const compiler_path = try std.fmt.allocPrint(allocator, ".zig-use/zig-{s}-{s}", .{ platform, version });
+    defer allocator.free(compiler_path);
 
-    const joined_path = try std.fs.path.join(allocator, &[_][]const u8{ cwd_path, file_path });
-    return joined_path;
+    const absolute_path = try std.fs.path.join(allocator, &[_][]const u8{ home_path, compiler_path });
+    return absolute_path;
 }
 
 pub fn getZigCompilerTarPath(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
@@ -147,7 +146,7 @@ fn checkIfZigCompilerIsInstalled(compiler_path: []const u8) !bool {
 }
 
 fn extractZigCompiler(allocator: std.mem.Allocator, tar_file_path: []const u8, extract_path: []const u8) !void {
-    std.fs.cwd().makeDir(extract_path) catch |err| switch (err) {
+    std.fs.makeDirAbsolute(extract_path) catch |err| switch (err) {
         error.PathAlreadyExists => {},
         else => |e| return e,
     };
