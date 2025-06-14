@@ -175,8 +175,25 @@ fn passThroughCommand(allocator: std.mem.Allocator, compiler_path: []const u8) !
     const zig_path = try std.fmt.allocPrint(allocator, "{s}/zig", .{compiler_path});
     defer allocator.free(zig_path);
 
-    const args = &[_][]const u8{ zig_path, "version" };
-    var child = std.process.Child.init(args, allocator);
+    var cli_args = std.process.args();
+    defer cli_args.deinit();
+
+    // Skip the first argument as it is the cli name.
+    _ = cli_args.next();
+
+    var args = std.ArrayList([]const u8).init(allocator);
+    defer args.deinit();
+
+    try args.append(zig_path);
+
+    while (cli_args.next()) |arg| {
+        try args.append(arg);
+    }
+
+    const args_slice = try args.toOwnedSlice();
+    defer allocator.free(args_slice);
+
+    var child = std.process.Child.init(args_slice, allocator);
     _ = try child.spawnAndWait();
 }
 
