@@ -41,3 +41,4 @@ jobs:
         with:
           files: zig-use-${{ matrix.target }}.tar.gz
           draft: true
+          token: ${{ secrets.GITHUB_TOKEN }}
