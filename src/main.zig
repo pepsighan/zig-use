@@ -74,8 +74,6 @@ fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     const platform = try getZigPlatform(allocator);
     defer allocator.free(platform);
 
-    const resolved_version = if (version.len > 0) version else "master";
-
     // Download the index.json from ziglang.org
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
@@ -98,7 +96,7 @@ fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, body, .{});
     defer parsed.deinit();
 
-    const version_obj = parsed.value.object.get(resolved_version);
+    const version_obj = parsed.value.object.get(version);
     if (version_obj) |v| {
         const platform_obj = v.object.get(platform);
         if (platform_obj) |p| {
@@ -110,7 +108,7 @@ fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     }
 
     // Version does not exist, so it is probably a pre-release version.
-    return std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}.tar.xz", .{ platform, resolved_version });
+    return std.fmt.allocPrint(allocator, "https://ziglang.org/builds/zig-{s}-{s}.tar.xz", .{ platform, version });
 }
 
 pub fn getZigCompilerPath(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
