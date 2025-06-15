@@ -1,4 +1,4 @@
-name: Zig Cross Build
+name: Build Zig Use
 
 on:
   push:
@@ -31,10 +31,3 @@ jobs:
       - name: Build for ${{ matrix.target }}
         run: |
           zig build -Dtarget=${{ matrix.target }} --release=safe
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: zig-use-${{ matrix.target }}
-          path: zig-out/bin/zig
-          if-no-files-found: error
