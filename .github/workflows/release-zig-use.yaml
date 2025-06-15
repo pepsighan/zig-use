@@ -1,0 +1,43 @@
+name: Release Zig Use
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        target:
+          # Linux targets
+          - x86-linux
+          - x86_64-linux
+          - aarch64-linux
+          - riscv64-linux
+          # macOS targets
+          - x86_64-macos
+          - aarch64-macos
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2.0.1
+
+      - name: Build for ${{ matrix.target }}
+        run: |
+          zig build -Dtarget=${{ matrix.target }} --release=safe
+
+      - name: Create release artifact
+        run: |
+          tar -czf "zig-use-${{ matrix.target }}.tar.gz" -C zig-out/bin "zig"
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: zig-use-${{ matrix.target }}.tar.gz
+          draft: true
