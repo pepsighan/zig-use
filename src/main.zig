@@ -7,7 +7,7 @@ const ZigUseError = error{
     PlatformNotSupported,
     DownloadUrlNotFound,
     ZigCompilerNotFound,
-    DotZigVersionInvalid,
+    SingleZigVersionOnly,
     HttpError,
 };
 
@@ -150,7 +150,12 @@ pub fn getZigCompilerTarPath(allocator: std.mem.Allocator, version: []const u8) 
 }
 
 pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u8, download_path: []const u8) !void {
-    const body = try get(allocator, download_url);
+    const body = get(allocator, download_url) catch |err| {
+        if (err == ZigUseError.HttpError) {
+            return ZigUseError.DownloadUrlNotFound;
+        }
+        return err;
+    };
     defer allocator.free(body);
 
     const file = try std.fs.createFileAbsolute(download_path, .{});
@@ -228,7 +233,7 @@ fn run() !void {
 
     const version = try trim(zig_version);
     if (std.mem.indexOf(u8, version, "\n")) |_| {
-        return ZigUseError.DotZigVersionInvalid;
+        return ZigUseError.SingleZigVersionOnly;
     }
 
     const tar_file_path = try getZigCompilerTarPath(allocator, version);
@@ -274,7 +279,7 @@ pub fn main() void {
                 std.log.err("could not find download URL to download zig compiler", .{});
                 std.log.err("maybe the version specified in .zigversion file is invalid", .{});
             },
-            ZigUseError.DotZigVersionInvalid => {
+            ZigUseError.SingleZigVersionOnly => {
                 std.log.err(".zigversion file should only contain a single version as its text content", .{});
             },
             ZigUseError.PlatformNotSupported => {
