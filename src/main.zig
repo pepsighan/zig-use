@@ -8,6 +8,7 @@ const ZigUseError = error{
     DownloadUrlNotFound,
     ZigCompilerNotFound,
     DotZigVersionInvalid,
+    HttpError,
 };
 
 fn trim(content: []u8) ![]const u8 {
@@ -70,6 +71,26 @@ fn getZigPlatform(allocator: std.mem.Allocator) ![]u8 {
     return platform;
 }
 
+/// Fetches the content of a URL.
+fn get(allocator: std.mem.Allocator, url: []const u8) ![]u8 {
+    var client = std.http.Client{ .allocator = allocator };
+    defer client.deinit();
+
+    var allocating = std.io.Writer.Allocating.init(allocator);
+    defer allocating.deinit();
+
+    const result = try client.fetch(.{
+        .method = .GET,
+        .location = .{ .url = url },
+        .response_writer = &allocating.writer,
+    });
+    if (result.status != .ok) {
+        return ZigUseError.HttpError;
+    }
+
+    return allocating.toOwnedSlice();
+}
+
 fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     const platform = try getZigPlatform(allocator);
     defer allocator.free(platform);
@@ -78,18 +99,7 @@ fn getZigDownloadUrl(allocator: std.mem.Allocator, version: []const u8) ![]u8 {
     var client = std.http.Client{ .allocator = allocator };
     defer client.deinit();
 
-    const uri = try std.Uri.parse("https://ziglang.org/download/index.json");
-
-    var hbuffer: [1024]u8 = undefined;
-    var request = try client.open(.GET, uri, .{
-        .server_header_buffer = &hbuffer,
-    });
-    defer request.deinit();
-    try request.send();
-    try request.finish();
-    try request.wait();
-
-    const body = try request.reader().readAllAlloc(allocator, 10 * 1024 * 1024);
+    const body = try get(allocator, "https://ziglang.org/download/index.json");
     defer allocator.free(body);
 
     // Parse the JSON
@@ -140,26 +150,7 @@ pub fn getZigCompilerTarPath(allocator: std.mem.Allocator, version: []const u8) 
 }
 
 pub fn downloadZigCompiler(allocator: std.mem.Allocator, download_url: []const u8, download_path: []const u8) !void {
-    var client = std.http.Client{ .allocator = allocator };
-    defer client.deinit();
-
-    const uri = try std.Uri.parse(download_url);
-
-    var hbuffer: [1024]u8 = undefined;
-    var request = try client.open(.GET, uri, .{
-        .server_header_buffer = &hbuffer,
-    });
-    defer request.deinit();
-
-    try request.send();
-    try request.finish();
-    try request.wait();
-
-    if (request.response.status != .ok) {
-        return ZigUseError.ZigCompilerNotFound;
-    }
-
-    const body = try request.reader().readAllAlloc(allocator, 500 * 1024 * 1024);
+    const body = try get(allocator, download_url);
     defer allocator.free(body);
 
     const file = try std.fs.createFileAbsolute(download_path, .{});
@@ -213,16 +204,16 @@ fn passThroughCommand(allocator: std.mem.Allocator, compiler_path: []const u8) !
     // Skip the first argument as it is the cli name.
     _ = cli_args.next();
 
-    var args = std.ArrayList([]const u8).init(allocator);
-    defer args.deinit();
+    var args = try std.ArrayList([]const u8).initCapacity(allocator, 1);
+    defer args.deinit(allocator);
 
-    try args.append(zig_path);
+    try args.append(allocator, zig_path);
 
     while (cli_args.next()) |arg| {
-        try args.append(arg);
+        try args.append(allocator, arg);
     }
 
-    const args_slice = try args.toOwnedSlice();
+    const args_slice = try args.toOwnedSlice(allocator);
     defer allocator.free(args_slice);
 
     var child = std.process.Child.init(args_slice, allocator);
